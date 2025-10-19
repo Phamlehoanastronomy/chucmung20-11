@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chúc mừng 20/10 - Lớp 9/2 (Vũ trụ 3D)</title>
+  <style>
+    :root{
+      --bg1:#020213; --bg2:#07112a; --accent:#9cc7ff; --textGlow: rgba(160,200,255,0.18);
+    }
+    html,body{height:100%;margin:0;padding:0;background:linear-gradient(180deg,var(--bg1),var(--bg2));font-family:Inter,system-ui,Arial;color:#fff;overflow:hidden}
+    #container{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+    canvas{display:block}
+    .ui{
+      position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:auto;
+    }
+    .title{font-size:clamp(26px,4vw,44px);text-shadow:0 8px 30px rgba(0,0,0,0.6);margin:0 0 12px 0}
+    .sub{opacity:0.9;margin-bottom:16px}
+    .btn{background:linear-gradient(90deg,var(--accent),#ff9ccf);border:none;padding:12px 24px;border-radius:999px;color:#031022;font-weight:700;cursor:pointer;font-size:16px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
+    .controls{position:fixed;left:14px;bottom:14px;color:#ddd;font-size:13px}
+    .credits{position:fixed;right:14px;bottom:14px;color:#ddd;font-size:13px}
+    .overlay{
+      position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(rgba(0,0,0,0.0), rgba(0,0,0,0.3));
+      pointer-events:none;
+    }
+    .finalBox{
+      background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      padding:22px;border-radius:12px;backdrop-filter:blur(6px);box-shadow:0 10px 30px var(--textGlow);
+    }
+    @media (max-width:600px){
+      .title{font-size:24px}
+      .btn{padding:10px 18px}
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <canvas id="c"></canvas>
+    <div class="ui" id="uiBox">
+      <h1 class="title">Chúc mừng 20/10 💐</h1>
+      <div class="sub">Dành cho các bạn nữ lớp 9/2</div>
+      <button id="start" class="btn">Ấn vào đây để bắt đầu</button>
+    </div>
+    <div class="controls">Âm lượng: <input id="vol" type="range" min="0" max="1" step="0.01" value="0.6"></div>
+    <div class="credits">Lớp 9/2 ✨</div>
+  </div>
+
+  <!-- Nhạc nền không lời (miễn phí nguồn mẫu). Nếu muốn thay, upload mp3 và đổi src) -->
+  <audio id="music" loop preload="auto" src="https://cdn.pixabay.com/download/audio/2021/08/04/audio_8a4b1f30d7.mp3?filename=relaxing-piano-11060.mp3"></audio>
+
+  <script>
+  // ====== CONFIG ======
+  const SEQUENCE = [
+    "CHÚC CÁC BẠN NỮ LỚP 9/2",
+    "CHÚC CÁC BẠN 20/10 VUI VẺ",
+    "MONG CÁC BẠN BƯỚC VÀO KÌ THI GIỮA KÌ 1 TỐT ĐẸP ✨"
+  ];
+  const STAR_COUNT = 1200;     // tổng số sao trong không gian (tăng => đẹp hơn nhưng nặng)
+  const FIELD_DEPTH = 2200;    // chiều sâu không gian (px)
+  const FORM_DURATION = 1600;  // thời gian để sao tụ thành chữ (ms)
+  const HOLD_DURATION = 1100;  // giữ chữ đó để nhìn (ms)
+  // ======================
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  let W = canvas.width = innerWidth;
+  let H = canvas.height = innerHeight;
+
+  window.addEventListener('resize', ()=>{W=canvas.width=innerWidth; H=canvas.height=innerHeight; camera.fov = Math.min(W,H);});
+
+  // camera-like params
+  const camera = { x:0, y:0, z:800, fov: Math.min(W,H), centerX: W/2, centerY: H/2 };
+
+  // Random helper
+  function rand(a,b){return a + Math.random()*(b-a)}
+
+  // Star (3D point)
+  class Star3D{
+    constructor(){
+      this.reset();
+    }
+    reset(){
+      // random position inside a wide box (x,y,z)
+      this.x = rand(-W*1.2, W*1.2);
+      this.y = rand(-H*1.2, H*1.2);
+      this.z = rand(-FIELD_DEPTH/2, FIELD_DEPTH/2);
+      this.tx = this.x; this.ty = this.y; this.tz = this.z; // target
+      this.size = rand(0.6, 2.2);
+      this.baseAlpha = rand(0.35, 1.0);
+    }
+    setTarget(x,y,z){
+      this.tx = x; this.ty = y; this.tz = z;
+    }
+    update(dt){
+      // simple easing toward target
+      const ease = 0.08;
+      this.x += (this.tx - this.x) * ease;
+      this.y += (this.ty - this.y) * ease;
+      this.z += (this.tz - this.z) * ease;
+      // slight slow drift when not forming
+      if(Math.random() < 0.002){
+        this.x += rand(-0.5,0.5); this.y += rand(-0.5,0.5);
+      }
+    }
+    draw(){
+      // perspective projection
+      const depth = camera.z - this.z;
+      const scale = camera.fov / Math.max(10, depth);
+      const sx = camera.centerX + (this.x - camera.x) * scale;
+      const sy = camera.centerY + (this.y - camera.y) * scale;
+      const r = Math.max(0.3, this.size * scale * 0.8);
+      const alpha = Math.max(0, Math.min(1, this.baseAlpha * (1 + (0.6 - Math.abs(scale-0.6)) )));
+      ctx.beginPath();
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r*3);
+      g.addColorStop(0, `rgba(255,255,255,${alpha})`);
+      g.addColorStop(0.4, `rgba(200,230,255,${alpha*0.9})`);
+      g.addColorStop(1, `rgba(120,160,255,0)`);
+      ctx.fillStyle = g;
+      ctx.arc(sx, sy, r*1.6, 0, Math.PI*2);
+      ctx.fill();
+      // small core
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(1,alpha+0.2)})`;
+      ctx.arc(sx, sy, r*0.6, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // create stars
+  let stars = [];
+  for(let i=0;i<STAR_COUNT;i++) stars.push(new Star3D());
+
+  // offscreen canvas to generate text points
+  function get3DPointsForText(text, fontSize){
+    const off = document.createElement('canvas');
+    const ow = Math.min(2000, Math.floor(W*0.9));
+    const oh = Math.floor(fontSize * 1.6);
+    off.width = ow; off.height = oh;
+    const octx = off.getContext('2d');
+    octx.clearRect(0,0,ow,oh);
+    // text style
+    octx.fillStyle = 'white';
+    octx.font = `bold ${fontSize}px Arial, sans-serif`;
+    octx.textAlign = 'center';
+    octx.textBaseline = 'middle';
+    octx.fillText(text, ow/2, oh/2);
+    const img = octx.getImageData(0,0,ow,oh).data;
+    const pts = [];
+    // sample pixels (coarser step => fewer points)
+    const step = Math.max(4, Math.floor(Math.min(14, ow/160)));
+    for(let y=0;y<oh;y+=step){
+      for(let x=0;x<ow;x+=step){
+        const idx = (y*ow + x)*4 + 3;
+        if(img[idx] > 128){
+          // center coordinate relative to canvas center
+          const rx = x - ow/2;
+          const ry = y - oh/2;
+          pts.push({x: rx, y: ry});
+        }
+      }
+    }
+    return {pts, ow, oh};
+  }
+
+  // assign stars to form text (3D plane at z = targetZ)
+  function formText3D(text, duration = FORM_DURATION, depthZ = 0){
+    const fontSize = Math.max(44, Math.floor(W/12));
+    const {pts, ow, oh} = get3DPointsForText(text, fontSize);
+    if(pts.length === 0) return;
+    // shuffle pts to randomize mapping
+    const P = pts.slice();
+    // if too many stars, sample
+    const needed = Math.min(stars.length, P.length);
+    // prepare indices (spread points across stars)
+    for(let i=0;i<stars.length;i++){
+      // choose a random point from P
+      const p = P[i % P.length];
+      // scale p to fit screen width
+      const scaleX = Math.min(W*0.9 / ow, 1.6);
+      const scaleY = Math.min(H*0.6 / oh, 1.6);
+      // add slight per-letter depth variance
+      const tz = depthZ + rand(-120,120);
+      const tx = (p.x * scaleX) + camera.centerX + rand(-6,6);
+      const ty = (p.y * scaleY) + camera.centerY + rand(-6,6);
+      // convert screen tx,ty into world coordinates relative to camera projection inverse
+      // We'll keep world coords consistent with earlier star coordinates: (x,y,z) around camera center
+      // Solve approximate inverse projection: worldX = (tx - centerX) / scale + camera.x
+      // scale = camera.fov / (camera.z - z) => so z = camera.z - camera.fov / scale
+      const approxScale = 0.7; // adjust so letters appear in front of camera nicely
+      let worldZ = tz; // use tz as desired z directly (works fine visually)
+      // set target directly in world coordinates using offset from center
+      const worldX = (tx - camera.centerX) * (worldZ !== 0 ? 1 : 1); // keep linear transform
+      const worldY = (ty - camera.centerY) * (worldZ !== 0 ? 1 : 1);
+      stars[i].setTarget(worldX, worldY, worldZ);
+    }
+  }
+
+  // scatter stars (send them back to random field)
+  function scatterAll(){
+    for(let s of stars){
+      s.setTarget(rand(-W*1.2,W*1.2), rand(-H*1.2,H*1.2), rand(-FIELD_DEPTH/2, FIELD_DEPTH/2));
+    }
+  }
+
+  // animation loop
+  let last = performance.now();
+  function loop(t){
+    const dt = t - last; last = t;
+    // background gradient + subtle nebula
+    ctx.fillStyle = "#040414";
+    ctx.fillRect(0,0,W,H);
+    // faint nebula layers (soft)
+    const ng = ctx.createRadialGradient(W*0.25,H*0.2,0, W*0.25,H*0.2, Math.max(W,H)*0.9);
+    ng.addColorStop(0, "rgba(10,20,50,0.08)");
+    ng.addColorStop(1, "rgba(2,6,18,0)");
+    ctx.fillStyle = ng; ctx.fillRect(0,0,W,H);
+
+    // draw stars sorted by z (far -> near) to get correct overlay
+    stars.sort((a,b)=> a.z - b.z);
+    for(const s of stars){ s.update(dt); s.draw(); }
+
+    requestAnimationFrame(loop);
+  }
+
+  // UI & sequence control
+  const btn = document.getElementById('start');
+  const uiBox = document.getElementById('uiBox');
+  const music = document.getElementById('music');
+  const vol = document.getElementById('vol');
+  vol.addEventListener('input', ()=>{ music.volume = vol.value; });
+
+  // sequence runner: scatter -> form each text -> hold -> scatter -> form next
+  async function runSequence(){
+    uiBox.style.display = 'none';
+    // try play music on user gesture
+    try{ music.currentTime = 0; music.volume = vol.value; await music.play(); } catch(e){}
+    // initial scatter to emphasize space
+    scatterAll();
+    await sleep(600);
+    for(let i=0;i<SEQUENCE.length;i++){
+      // gather stars from all over and form text plane at different z so depth looks dynamic
+      const targetZ = rand(-80, 160); // some small variance
+      formText3D(SEQUENCE[i], FORM_DURATION, targetZ);
+      // allow time for forming
+      await sleep(FORM_DURATION + 200);
+      // hold so viewers read
+      await sleep(HOLD_DURATION + (i*200));
+      // small sparkle: pop a few extra bright stars
+      for(let j=0;j<40;j++){
+        const s = new Star3D();
+        s.x = rand(-W*1.2,W*1.2); s.y = rand(-H*1.2,H*1.2); s.z = rand(-FIELD_DEPTH/2, FIELD_DEPTH/2);
+        s.tx = rand(-W*0.3, W*0.3) + camera.centerX;
+        s.ty = rand(-H*0.12, H*0.12) + camera.centerY;
+        s.tz = rand(-120, 40);
+        s.size = rand(1.2,3.2);
+        s.baseAlpha = 1;
+        stars.push(s);
+      }
+      await sleep(400);
+      // disperse before next phrase (except last)
+      if(i < SEQUENCE.length - 1){
+        scatterAll();
+        await sleep(800);
+      }
+    }
+    // final overlay message
+    showFinal();
+  }
+
+  function showFinal(){
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = `<div class="finalBox" style="text-align:center;color:white">
+        <h2 style="margin:0 0 8px 0;font-size:clamp(18px,3vw,32px)">Chúc các bạn 20/10 vui vẻ!</h2>
+        <p style="margin:0;opacity:0.95">Mong các bạn bước vào kì thi giữa kì 1 thật tốt đẹp và tỏa sáng như những vì sao ✨</p>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.animate([{opacity:0},{opacity:1}],{duration:600,fill:'forwards'});
+    // gentle camera float after end
+    setInterval(()=>{ camera.x = Math.sin(performance.now()/6000)*40; camera.y = Math.cos(performance.now()/7000)*30; }, 50);
+  }
+
+  // small utility
+  function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
+  // start handler
+  btn.onclick = ()=>{ runSequence().catch(e=>console.error(e)); }
+
+  // start rendering
+  requestAnimationFrame(loop);
+
+  // optional: click canvas to toggle music
+  canvas.addEventListener('click', ()=>{ if(music.paused) music.play().catch(()=>{}); else music.pause(); });
+
+  // touch friendly: prevent overscroll
+  document.body.addEventListener('touchmove', e=>{ e.preventDefault(); }, {passive:false});
+
+  </script>
+</body>
+</html>
